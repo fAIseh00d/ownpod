@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cmd="${1:-help}"
+
+clean_containers() {
+  echo "Cleaning existing containers..."
+  docker rm -f pod0-gpu0 pod1-gpu1 2>/dev/null || true
+}
+
+case "$cmd" in
+  clean)         clean_containers ;;
+  up)            clean_containers && docker compose up --build ;;
+  up-demo)       clean_containers && docker compose --profile demo up --build ;;
+  down)          docker compose down -v ;;
+  restart)       docker compose down && clean_containers && docker compose up --build ;;
+  restart-demo)  docker compose down && clean_containers && docker compose --profile demo up --build ;;
+  logs)          docker compose logs -f ;;
+  purge)         curl -s -X POST http://localhost:8000/v2/local-ep/purge-queue | jq . ;;
+  health)        curl -s http://localhost:8000/v2/local-ep/health | jq . ;;
+  status)
+    curl -s http://localhost:8000/v2/local-ep/health | jq '{queue_length:.queue_length}'
+    ;;
+  run)
+    curl -s -X POST http://localhost:8000/v2/local-ep/run \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer OWNPOD_LOCAL" \
+      -d '{"input":{"text":"ownpod demo"} }' | jq .
+    ;;
+  runsync)
+    curl -s -X POST http://localhost:8000/v2/local-ep/runsync \
+      -H "Content-Type: application/json" \
+      -d '{"input":{"text":"sync job"} }' | jq .
+    ;;
+  stream)
+    id="$(curl -s -X POST http://localhost:8000/v2/local-ep/run \
+           -H "Content-Type: application/json" \
+           -d '{"input":{"text":"streaming job"} }' | jq -r .id)"
+    curl -N "http://localhost:8000/v2/local-ep/stream/$id"
+    ;;
+  *)
+    echo "Usage: $0 {up|up-demo|down|restart|restart-demo|clean|logs|purge|health|status|run|runsync|stream}"
+    ;;
+esac

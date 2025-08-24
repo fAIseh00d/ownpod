@@ -1,0 +1,7 @@
+fastapi==0.116.1
+redis==6.4.0
+uvicorn==0.35.0
+requests==2.31.0
+pydantic==2.4.2
+uvloop==0.21.0 ; sys_platform != 'win32'
+httptools==0.6.1

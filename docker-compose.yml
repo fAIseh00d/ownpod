@@ -1,0 +1,78 @@
+volumes:
+  redisdata:
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    sysctls:
+      - net.core.somaxconn=1024
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: ownpod/ownpod-api:latest
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --http httptools --loop uvloop
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - OWNPOD_RESULT_TTL_SEC=1800
+      - OWNPOD_RUNSYNC_TIMEOUT_MS=30000
+      - OWNPOD_DESCRIPTION_PREFIX=ownpod
+      # Comma-separated list of worker base URLs started with --rp_serve_api
+      - OWNPOD_WORKERS=${OWNPOD_WORKERS:-http://worker1:8000,http://worker2:8000}
+      # Remote worker options (safe defaults; override for remote HTTPS/self-signed)
+      - OWNPOD_WORKER_VERIFY_TLS=${OWNPOD_WORKER_VERIFY_TLS:-true}
+      - OWNPOD_WORKER_CA_BUNDLE=${OWNPOD_WORKER_CA_BUNDLE:-}
+      - OWNPOD_WORKER_HEADERS=${OWNPOD_WORKER_HEADERS:-}
+      - OWNPOD_WORKER_CONNECT_TIMEOUT_S=${OWNPOD_WORKER_CONNECT_TIMEOUT_S:-5}
+      - OWNPOD_WORKER_RUN_READ_TIMEOUT_S=${OWNPOD_WORKER_RUN_READ_TIMEOUT_S:-30}
+      - OWNPOD_WORKER_STATUS_TIMEOUT_S=${OWNPOD_WORKER_STATUS_TIMEOUT_S:-15}
+      - OWNPOD_WORKER_CANCEL_TIMEOUT_S=${OWNPOD_WORKER_CANCEL_TIMEOUT_S:-10}
+    restart: unless-stopped
+
+  worker1:
+    profiles: [demo]
+    container_name: worker1
+    image: 'ownpod/worker-echo:latest'
+    build:
+      context: ./examples/worker-echo
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - '8111:8000'
+    logging:
+      driver: json-file
+      options:
+        max-size: 1m
+    command: ["python", "handler.py", "--rp_serve_api", "--rp_api_host", "0.0.0.0", "--rp_api_port", "8000"]
+
+  worker2:
+    profiles: [demo]
+    container_name: worker2
+    image: 'ownpod/worker-echo:latest'
+    build:
+      context: ./examples/worker-echo
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - '8112:8000'
+    logging:
+      driver: json-file
+      options:
+        max-size: 1m
+    command: ["python", "handler.py", "--rp_serve_api", "--rp_api_host", "0.0.0.0", "--rp_api_port", "8000"]
